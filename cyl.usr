@@ -1,0 +1,611 @@
+c-----------------------------------------------------------------------
+c  nek5000 user-file template
+c    this is the user file for the conjugate heat transfer 
+c  user specified routines:
+c     - uservp  : variable properties
+c     - userf   : local acceleration term for fluid
+c     - userq   : local source term for scalars
+c     - userbc  : boundary conditions
+c     - useric  : initial conditions
+c     - userchk : general purpose routine for checking errors etc.
+c     - userqtl : thermal divergence for lowMach number flows 
+c     - usrdat  : modify element vertices 
+c     - usrdat2 : modify mesh coordinates
+c     - usrdat3 : general purpose routine for initialization
+c     
+c-----------------------------------------------------------------------
+      subroutine uservp(ix,iy,iz,eg) !!!! set variable properties
+
+
+      integer ix,iy,iz,eg
+     
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      integer e
+      e = gllel(eg)
+
+       ! variabales in momentum equation (fluid)
+
+      if (ifield.eq.1) then
+         utrans  = param(1)        !=1, density in fluie
+         udiff   = param(2)        !=sqrt(Pr_fluid/Ra_fluid)
+      else       ! variabales in energy equation
+         utrans  = param(7)        ! =1, density in fluid 
+         udiff   = param(8)        != 1/sqrt(Pr_fluid*Ra_fluid)
+
+         if (eg .gt. nelgv) then   ! properties in the solid
+            udiff   = 5.789*param(8) ! conductivity copper/air 
+            utrans  = 1.0
+         endif
+
+      endif
+
+      return
+      end
+!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+c-----------------------------------------------------------------------
+      subroutine userf(ix,iy,iz,eg) ! set acceleration term
+c
+c     Note: this is an acceleration term, NOT a force!
+c     Thus, ffx will subsequently be multiplied by rho(x,t).
+c
+c      implicit none
+
+      integer ix,iy,iz,eg
+
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      integer e
+
+      ffx = 0.0
+      ffy = 0.0
+      ffz = temp
+
+      return
+      end
+c-----------------------------------------------------------------------
+!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      subroutine userq(ix,iy,iz,eg) ! set source term
+
+
+      integer ix,iy,iz,eg
+
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      integer e
+
+      qvol   = 0.0
+
+      return
+      end
+c-----------------------------------------------------------------------
+!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      subroutine userbc(ix,iy,iz,iside,eg) ! set up boundary conditions
+c
+c     NOTE ::: This subroutine MAY NOT be called by every process
+c
+c      Set bounday conditions
+c      Temperature at the bottom of the solid is  1+deltaT
+c      Temperature at the top of the upper solid is 0-deltaT
+c ------------------------------------------------------
+
+      integer ix,iy,iz,iside,eg
+
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      include 'USERDEF.f'
+
+      ux   = 0.0
+      uy   = 0.0
+      uz   = 0.0
+                    
+        temp = -7.457*z + 4.228   !if deltaT=4.72 
+
+      ! bottom plate
+      if(z.le.0) then
+       temp = 1.0-(z/hs)*(deltaT)
+      end if
+      ! top plate
+      if(z.ge.1) then
+       temp= ((1.0-z)/(hs))*(deltaT)
+      end if
+   
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine useric(ix,iy,iz,eg) ! set up initial conditions
+
+
+      integer ix,iy,iz,eg
+
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      include 'USERDEF.f'
+
+      ux   = 0.0
+      uy   = 0.0
+      uz   = 0.0
+
+      temp = 1.0 - z
+
+      if (z.le.0.0) then 
+       temp = 1.0-(z/hs)*(deltaT)
+      else if (z.ge.1.0) then 
+       temp=((1.0-z)/(hs))*(deltaT)
+      end if
+
+
+      return
+      end
+c%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+c-----------------------------------------------------------------------
+      subroutine userchk()
+
+c      implicit none
+
+      include 'SIZE'
+      include 'TOTAL'
+
+      include 'USERDEF.f'  ! check the file for the input parametrs
+      parameter (icmp_pdf = 0)
+      parameter (lt=lx1*ly1*lz1*lelt)
+
+      real dtdx(lt),dtdy(lt),dtdz(lt)
+      real uzt(lt),epst(lt),epsv(lt)
+      real dudx(lt),dudy(lt),dudz(lt)
+      real dvdx(lt),dvdy(lt),dvdz(lt)
+      real dwdx(lt),dwdy(lt),dwdz(lt)
+      real etak(lt)
+      real grad_valv,grad_valt,tiny
+      real wsqr(lt),usqrt(lt),ekin(lt)
+      real h_flux(lt)
+      real blto(lt)
+      real blvcalc, blv(lt), blvd(lt)  
+   
+      if(istep.eq.0) then
+
+      ! reset counters
+         nstat = 0
+         nstat1d = 0
+      ! set containers to zero
+        call rzero(uzt_bar,lz1*nelz)
+        call rzero(t_bar,lz1*nelz)
+        call rzero(dtdz_bar,lz1*nelz)
+        call rzero(epst_bar,lz1*nelz)
+        call rzero(epsv_bar,lz1*nelz)
+        call rzero(wsqr_bar,lz1*nelz)
+        call rzero(usqrt_bar,lz1*nelz)
+        call rzero(h_flux_bar,lz1*nelz)
+        call rzero(ekin_bar,lz1*nelz)
+       
+      endif
+
+      n = nx1*ny1*nz1*nelv
+      if (istep.le.100.or.mod(istep,20).eq.0) then
+         wmin = glmin(vz,n)
+         wmax = glmax(vz,n)
+         tmin = glmin(t ,n)
+         tmax = glmax(t ,n)
+         if (nid.eq.0) write(6,1) istep,time,tmin,tmax,wmin,wmax
+    1    format(i8,1p5e12.4,' uz_t_mx')
+      endif
+
+      !---------------------------------------------------------- 
+      !--- to exclude the coordinates from the output files
+      !---- in case you are working with .par file,
+      !---------------------------------------------------------
+
+      ifxyo = .true.
+      if (istep.gt.iostep) ifxyo = .false.
+
+      if ((mod(istep,iostep).eq.0).and.(istep.ge.iostep)) then
+
+!-----Temperature gradient --------------------------------------------------
+        call gradm1(dtdx,dtdy,dtdz,t)
+
+!-----Velocity gradients---------------------------------------------------
+        call gradm1(dudx,dudy,dudz,vx)
+        call gradm1(dvdx,dvdy,dvdz,vy)
+        call gradm1(dwdx,dwdy,dwdz,vz)
+
+        n = nx1*ny1*nz1*nelt  ! T-mesh
+        do i = 1,n
+
+!-----Convective current ----------------------------------------------------
+          uzt(i) = t(i,1,1,1,1)*vz(i,1,1,1) !Kappa defined as an array here
+
+!---- usqrt= u^2 + v^2 + w^2  ---------------------------------
+       wsqr(i) = vz(i,1,1,1)**2
+       usqrt(i) = vx(i,1,1,1)**2+vy(i,1,1,1)**2+vz(i,1,1,1)**2
+
+!----- Turbulent kinetic energy 2*ekin=u'^2+ v'^2+ w'^2--------
+ !-----2*TKE=<u_i^2>
+          ekin(i)=vx(i,1,1,1)*vx(i,1,1,1)+
+     1            vy(i,1,1,1)*vy(i,1,1,1)+
+     1            vz(i,1,1,1)*vz(i,1,1,1)
+
+!-----Thermal dissipation epsT=(grad T)**2/sqrt(RaPr) --------------------------
+          grad_valt=0.
+         !=kappa=1/sqrt(Ra*Pr)=preface1= param(8)=vdiff(i,1,1,1,2)
+         !=neu=sqrt(Pr/Ra) =preface2= param(2)=vdiff(i,1,1,1,1)
+          grad_valt=dtdx(i)**2+dtdy(i)**2+dtdz(i)**2
+          epst(i)=grad_valt*vdiff(i,1,1,1,2)   !variabale kappa
+
+!-----Energy dissipation epsv=0.5*(du_i/dx_j+du_j/dx_i)**2*sqrt(Pr/Ra)---------
+          grad_valv=0.
+
+          grad_valv=grad_valv+(dudx(i)+dudx(i))**2
+          grad_valv=grad_valv+(dudy(i)+dvdx(i))**2
+          grad_valv=grad_valv+(dudz(i)+dwdx(i))**2
+
+          grad_valv=grad_valv+(dvdx(i)+dudy(i))**2
+          grad_valv=grad_valv+(dvdy(i)+dvdy(i))**2
+          grad_valv=grad_valv+(dvdz(i)+dwdy(i))**2
+
+          grad_valv=grad_valv+(dwdx(i)+dudz(i))**2
+          grad_valv=grad_valv+(dwdy(i)+dvdz(i))**2
+          grad_valv=grad_valv+(dwdz(i)+dwdz(i))**2
+
+
+          epsv(i)=0.5*vdiff(i,1,1,1,1)*grad_valv
+          etak(i)=(prefac2**(3.0/8.0))*(epsv(i)**(-1.0/4.0))
+          h_flux(i) = dtdz(i)
+
+        enddo	
+
+        call vertical_mean(uzt,uzt_bar,1)
+        call vertical_mean(epst,epst_bar,2)
+        call vertical_mean(epsv,epsv_bar,3)
+        call vertical_mean(t,t_bar,4)
+        call vertical_mean(dtdz,dtdz_bar,5)
+
+       
+!----------------------------------------------------
+
+	tiny = 1.0e-16
+	do i = 1,n
+	   epst(i) = log(epst(i) + tiny)
+	   epsv(i) = log(epsv(i) + tiny)
+	enddo	
+
+!-------No pressure field, no scalar output
+        ifpo = .false.
+        ifto = .false.
+
+!        call outpost2(dtdx,dtdy,dtdz,pr,t,0,'gdt')
+!        call outpost2( uzt,epst,epsv,pr,t,0,'eps')
+
+        ifpo = .true.
+        ifto = .true.
+
+      ! -- update averaging counter --
+        nstat1d = nstat1d + 1
+
+        if (nid.eq.0) then
+           write(*,*) 'NSTAT1D=',nstat1d
+        endif
+
+      endif
+
+
+      ! -- update averaging counter --
+      if (istep.gt.0) nstat = nstat + 1
+
+
+	 call userchk_flux
+   
+! *** test history points ***
+!      call hpts
+
+      return				
+      end
+c%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+c-----------------------------------------------------------------------
+      subroutine vertical_mean(ff,fld_bar,i_name)
+      include 'SIZE'
+      include 'TOTAL'
+
+      include 'USERDEF.f'  ! check the file for the input parametrs
+
+      character*80 fname
+
+      real ff(lx1,ly1,lz1,lelt)  ! -- field
+      real fld_bar(lz1,nelz)     ! -- container for T-averaging
+
+      real fbar(lz1,nelz)
+      real zbar(lz1,nelz)
+      real wght(lz1,nelz)
+      real work(lz1,nelz)
+
+      integer e,eg,ex,ey,ez,f
+
+      nelxy = nelgt/nelz
+
+      fstat = DBLE(nstat1d)
+
+!-----Set both arrays to zero -----------------------------------------
+      call rzero(fbar,lz1*nelz)
+      call rzero(zbar,lz1*nelz)
+      call rzero(wght,lz1*nelz)
+
+
+!-----Pick face 5 to evaluate surface Jacobian-------------------------
+      f = 5 
+
+      do e=1,nelt
+
+         eg = lglel(e)
+         call get_exyz(ex,ey,ez,eg,nelxy,1,nelz)
+
+         do k = 1,nz1
+           do i = 1,nx1*ny1
+             fbar(k,ez) = fbar(k,ez)+area(i,1,f,e)*ff(i,1,k,e)
+             zbar(k,ez) = zbar(k,ez)+area(i,1,f,e)*zm1(i,1,k,e)
+             wght(k,ez) = wght(k,ez)+area(i,1,f,e)
+           enddo
+         enddo
+
+      enddo
+
+!-----Gather over all processes (-> mpi_allreduce) ---------------------------
+      call gop(fbar,work,'+  ',lz1*nelz)
+      call gop(zbar,work,'+  ',lz1*nelz)
+      call gop(wght,work,'+  ',lz1*nelz)
+
+!-----Area average ------------------------------------------------------------
+      do i=1,lz1*nelz
+        fbar(i,1)=fbar(i,1)/wght(i,1) 
+        zbar(i,1)=zbar(i,1)/wght(i,1)
+      enddo
+
+!-----Output of the vertical profile of plane averages  -----------------------
+!
+!     Example with 32 (=nelz) vertical elements and lx1=ly1=lz1=4:
+!      -> 2 internal vertical GLL points per element
+!      -> 97 vertical planes, here output of 96
+!
+!-----------------------------------------------------------------------------
+      if (nid.eq.0) then
+
+        if (i_name.eq.1) fname = "ver_uzte.dat"
+        if (i_name.eq.2) fname = "ver_epst.dat"
+        if (i_name.eq.3) fname = "ver_epsv.dat"
+        if (i_name.eq.4) fname = "ver_temp.dat"
+        if (i_name.eq.5) fname = "ver_dtdz.dat"
+100     format(es14.7,1X,es14.7)
+
+        ! -- append instantaneous values to file --
+        open(10,file=TRIM(fname),position="append")
+
+        do k = 1,nelz
+        do i = 1,lz1-1
+           write(10,100) zbar(i,k),fbar(i,k)
+        enddo   
+        enddo
+!        write(10,*) ! add blank separator
+
+        close(10)
+
+        ! -- update T-averaging stats and write --
+        open(10,file=TRIM(fname)//'.avr',status="unknown")
+
+        do k = 1,nelz
+        do i = 1,lz1-1
+           fld_bar(i,k) = (fbar(i,k) + fstat*fld_bar(i,k))/(fstat+1.0)
+           write(10,100) zbar(i,k),fld_bar(i,k)
+        enddo   
+        enddo
+
+        close(10)
+
+      endif
+
+      return
+      end
+
+
+ 
+
+
+c%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+       subroutine userchk_flux
+      include 'SIZE'
+      include 'TOTAL'
+
+c     This routine is for post-processing data, such as computing
+
+      parameter (lt=lx1*ly1*lz1*lelt)  !This is solution variabale so it must be in V-mesh   
+      real dtdx(lt),dtdy(lt),dtdz(lt),w(lt)
+
+      common /chkcmnr/ atime,timel,flux(2)
+      common /chkcmni/ iesurf(0:2*lelt,2),ifsurf(0:2*lelt,2)
+
+      integer icalld
+      save    icalld
+      data    icalld  /0/
+      CHARACTER*3 CB1B
+
+
+      include 'USERDEF.f'
+
+
+      if (icalld.eq.0) then
+         icalld = icalld + 1
+         atime  = 0.
+         timel  = time
+
+         call find_srf(iesurf(0,1),ifsurf(0,1),5)    ! bottom face
+         call find_srf(iesurf(0,2),ifsurf(0,2),6)    ! top    face
+
+      endif
+          if (istep.le.0) return
+
+
+!-----Compute temperature gradients for surface fluxes-------------------
+      call gradm1(dtdx,dtdy,dtdz,t)
+
+      do k = 1,2
+         flux(k)  = 0.0
+         do isurf = 1,iesurf(0,k)
+            ie    = iesurf(isurf,k)
+            iface = ifsurf(isurf,k)
+            CB1B = CBC(IFACE,IE,1)
+            if (CB1B.EQ.'E  ') then
+!-------------do nothing
+            else
+               call surface_flux(dq,dtdx,dtdy,dtdz,ie,iface,w)
+               flux(k) = flux(k) + dq
+            endif
+         enddo
+      enddo
+
+!-----Sum over all processors
+      call gop(flux,w,'+  ',2)
+
+!-----Output of Nusselt number at top/bottom plate-----------------------
+      dtime = time  - timel
+      atime = atime + dtime
+
+      pi4 = pi1*vRadius**2
+
+      Nu_face(1) =  flux(1)/pi4     ! <---bottom face
+      Nu_face(2) = -flux(2)/pi4     ! <---top face
+
+
+      ! -- compute time-averaging --
+      do k = 1,2
+         Nu_face_avr(k) =
+     &      (Nu_face(k) + fstat*Nu_face_avr(k))/(fstat + 1.0)
+      enddo
+
+      ! -- write to stdout --
+      if (nid.eq.0) then
+       write(6,1) istep,time,atime,Nu_face(1),Nu_face(2)
+       write(6,*)'%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%'
+      endif
+    1 format(i6,' Nusselt',1p4e14.6)
+    
+      ! -- write to output file --
+      if (nid.eq.0) then
+
+         open(10,file='nusselt6.dat',position='append')
+
+         write(10,100) time,atime,
+     &      Nu_face(1),Nu_face_avr(1),Nu_face(2),Nu_face_avr(2)
+
+         close(10)
+
+      endif
+100   format(es13.6,(5(1X,es13.6)))
+
+      timel = time
+
+      return
+      end
+
+!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      subroutine find_srf(iesurf,ifsurf,inface)
+c-----------------------------------------------------------------------
+c     Find list of surfaces over which the flux should be computed
+c     Number of such surfaces is returned in iesurf(0).
+c-----------------------------------------------------------------------
+
+      include 'SIZE'
+      include 'TOTAL'
+
+      integer iesurf(0:lelt),ifsurf(0:lelt)
+
+      nsurf = 0
+      nfaces = 2*ndim
+      do ie = 1,nelv
+         nsurf         = nsurf+1
+         iesurf(nsurf) = ie
+         ifsurf(nsurf) = inface
+      enddo
+
+      iesurf(0) = nsurf
+      ifsurf(0) = nsurf
+
+      return
+      end
+!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+c-----------------------------------------------------------------------
+c
+c     .usr file with full-restart routines, called from userchk
+c
+c-----------------------------------------------------------------------
+      subroutine my_full_restart_save    ! Call this from userchk
+
+c     Saves files for next full restart
+
+
+      include 'SIZE'
+      include 'TOTAL'
+      include 'RESTART'  ! max_rst
+
+
+c     This is the full-restart save part:
+
+      max_rst = 2*(nbdinp-1)    ! max # of rst files saved
+
+ 	      
+      nps1 = 0
+      if (ifheat) nps1 = 1 + npscal
+
+      mostep = mod1(istep,iostep)
+      if (istep.gt.iostep.and.mostep.lt.nbdinp) 
+     $    call outpost2(vx,vy,vz,pr,t,nps1,'rst')
+
+
+      return
+      end
+
+c%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%          
+
+      subroutine userqtl ! Set thermal divergence
+
+      call userqtl_scig 
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat()   ! This routine to modify element vertices
+
+c      implicit none
+
+      include 'SIZE'
+      include 'TOTAL'
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2()  ! This routine to modify mesh coordinates
+
+c      implicit none
+
+      include 'SIZE'
+      include 'TOTAL'
+       
+
+      param(59) = 1. ! Force nek5 to recognize element deformation. Naj
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3()
+
+c      implicit none
+
+      include 'SIZE'
+      include 'TOTAL'
+
+      return
+      end
