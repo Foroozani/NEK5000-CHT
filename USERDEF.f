@@ -1,7 +1,7 @@
 ! --- we assume that parameter "lz1" is defined ---
       parameter (nelz=89)  !***number of elements in z direction
 
-      parameter (pi1 = 3.1415926535897932384626433832795d0)
+      parameter (pi1 = 3.1415926d0)
       parameter (vRadius = 0.25) !*** global radius of the cylinder
       parameter (vHeight = 1.00) !*** global height of the cylinder 
       Parameter (deltaT = 4.72)    !*** prescribe temperatuere at the top and bottom 
