@@ -6,7 +6,7 @@
 Create a 2D mesh as I explened here:
 [NEK5000](http://nek5000.github.io/NekDoc/tutorials/conjht.html)
 
-and run a test case. 
+and run a test case [see here](https://github.com/Foroozani/MyLecturesNote). 
 
 In this part, We studied 3D conjugate heat transfer in a cylinder. The implemented subroutine can be fined at cyl.usr file. 
 
