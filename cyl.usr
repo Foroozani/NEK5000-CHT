@@ -36,7 +36,7 @@ c-----------------------------------------------------------------------
          udiff   = param(8)        != 1/sqrt(Pr_fluid*Ra_fluid)
 
          if (eg .gt. nelgv) then   ! properties in the solid
-            udiff   = 5.789*param(8) ! conductivity copper/air 
+            udiff   = 5.789*param(8) !Ratio of conductivity (solid copper/air) 
             utrans  = 1.0
          endif
 
